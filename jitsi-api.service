@@ -1,0 +1,13 @@
+[Unit]
+Description=Jitsi conference mapper API
+After=network-online.target
+
+[Service]
+Type=simple
+User=debian
+Restart=always
+WorkingDirectory=/opt/jitsi-api
+ExecStart=/usr/local/bin/pipenv run uvicorn main:app --host 127.0.0.1 --port 80
+
+[Install]
+WantedBy=multi-user.target
