@@ -1,24 +1,45 @@
 from datetime import datetime, timedelta
 from enum import Enum
+from hashlib import blake2b
 import secrets
 import string
 import sqlite3
 from typing import Optional
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 
 app = FastAPI()
 
+security = HTTPBasic()
 
-class status(Enum):
+
+class ApiStatus(Enum):
     FAIL = "No conference mapping was found"
     INVALID = "No conference or id provided"
     SUCCESS = "Successfully retrieved conference mapping"
 
 
+def get_credentials(credentials: HTTPBasicCredentials = Depends(security)):
+    row = connection.execute(
+        "SELECT password_hash FROM user WHERE name = ?", (credentials.username,)
+    ).fetchone()
+    if row is None or row[0] != blake2b(credentials.password.encode()).hexdigest():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials
+
+
 @app.get("/conferenceMapper")
-def conference_mapper(conference: Optional[str] = None, id: Optional[str] = None):
+def conference_mapper(
+    conference: Optional[str] = None,
+    id: Optional[str] = None,
+    credentials: str = Depends(get_credentials),
+):
     conf_name = conference
     conf_id = id
     if conf_name:
@@ -29,7 +50,7 @@ def conference_mapper(conference: Optional[str] = None, id: Optional[str] = None
         return {
             "conference": conf_name,
             "id": conf_id,
-            "message": status.SUCCESS,
+            "message": ApiStatus.SUCCESS,
         }
 
     if conf_id:
@@ -40,19 +61,19 @@ def conference_mapper(conference: Optional[str] = None, id: Optional[str] = None
             return {
                 "conference": row[0],
                 "id": conf_id,
-                "message": status.SUCCESS,
+                "message": ApiStatus.SUCCESS,
             }
         else:
             return {
                 "conference": False,
                 "id": conf_id,
-                "message": status.FAIL,
+                "message": ApiStatus.FAIL,
             }
 
     return {
         "conference": False,
         "id": False,
-        "message": status.INVALID,
+        "message": ApiStatus.INVALID,
     }
 
 
@@ -97,6 +118,14 @@ connection.execute(
         conf_name TEXT UNIQUE NOT NULL,
         timestamp DATETIME DEFAULT (strftime('%s','now')) NOT NULL,
         PRIMARY KEY (conf_id, conf_name)
-    ) WITHOUT ROWID;
+    ) WITHOUT ROWID
+    """
+)
+connection.execute(
+    """CREATE TABLE IF NOT EXISTS user (
+        name TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
     """
 )
