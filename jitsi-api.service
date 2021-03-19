@@ -7,7 +7,7 @@ Type=simple
 User=debian
 Restart=always
 WorkingDirectory=/opt/jitsi-api
-ExecStart=/usr/local/bin/pipenv run uvicorn main:app --host 127.0.0.1 --port 80
+ExecStart=/usr/local/bin/pipenv run uvicorn main:app --host 127.0.0.1 --port 2000
 
 [Install]
 WantedBy=multi-user.target
