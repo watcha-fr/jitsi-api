@@ -38,7 +38,7 @@ def get_credentials(credentials: HTTPBasicCredentials = Depends(security)):
 def conference_mapper(
     conference: Optional[str] = None,
     id: Optional[str] = None,
-    credentials: str = Depends(get_credentials),
+    # credentials: str = Depends(get_credentials),
 ):
     conf_name = conference
     conf_id = id
