@@ -77,6 +77,31 @@ def conference_mapper(
     }
 
 
+@app.get("/tenants/{tenant_name}/phone-numbers")
+def get_phone_numbers(tenant_name: str, conference: Optional[str] = None):
+    numbers = {}
+    for country, number in connection.execute(
+        """
+        SELECT
+            country,
+            number
+        FROM
+            phone_number
+            JOIN tenant ON phone_number.tenant_id == tenant.id
+        WHERE
+            tenant.name == ?""",
+        (tenant_name,),
+    ):
+        numbers.setdefault(country, []).append(number)
+    if not numbers:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return {
+        "message": "Phone numbers available.",
+        "numbers": numbers,
+        "numbersEnabled": True,
+    }
+
+
 def map(conf_name):
     """link and register the name of a conference with a random identifier"""
 
@@ -119,6 +144,21 @@ connection.execute(
         timestamp DATETIME DEFAULT (strftime('%s','now')) NOT NULL,
         PRIMARY KEY (conf_id, conf_name)
     ) WITHOUT ROWID
+    """
+)
+connection.execute(
+    """CREATE TABLE IF NOT EXISTS phone_number (
+        country TEXT NOT NULL,
+        number TEXT UNIQUE NOT NULL,
+        tenant_id INTEGER NOT NULL
+    )
+    """
+)
+connection.execute(
+    """CREATE TABLE IF NOT EXISTS tenant (
+        id INTEGER PRIMARY KEY,
+        name TEXT UNIQUE NOT NULL
+    )
     """
 )
 connection.execute(
