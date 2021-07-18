@@ -1,3 +1,5 @@
+# https://github.com/jitsi/jitsi-meet/blob/master/resources/cloud-api.swagger
+
 from datetime import datetime, timedelta
 from enum import Enum
 from hashlib import blake2b
@@ -11,14 +13,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 
 app = FastAPI()
-
 security = HTTPBasic()
-
-
-class ApiStatus(Enum):
-    FAIL = "No conference mapping was found"
-    INVALID = "No conference or id provided"
-    SUCCESS = "Successfully retrieved conference mapping"
 
 
 def get_credentials(credentials: HTTPBasicCredentials = Depends(security)):
@@ -34,54 +29,9 @@ def get_credentials(credentials: HTTPBasicCredentials = Depends(security)):
     return credentials
 
 
-@app.get("/conferenceMapper")
-def conference_mapper(
-    conference: Optional[str] = None,
-    id: Optional[str] = None,
-    # credentials: str = Depends(get_credentials),
-):
-    conf_name = conference
-    conf_id = id
-    if conf_name:
-        row = connection.execute(
-            "SELECT conf_id FROM map WHERE conf_name = ?", (conf_name,)
-        ).fetchone()
-        conf_id = row[0] if row is not None else map(conf_name)
-        return {
-            "conference": conf_name,
-            "id": conf_id,
-            "message": ApiStatus.SUCCESS,
-        }
-
-    if conf_id:
-        row = connection.execute(
-            "SELECT conf_name FROM map WHERE conf_id = ?", (conf_id,)
-        ).fetchone()
-        if row is not None:
-            return {
-                "conference": row[0],
-                "id": conf_id,
-                "message": ApiStatus.SUCCESS,
-            }
-        else:
-            return {
-                "conference": False,
-                "id": conf_id,
-                "message": ApiStatus.FAIL,
-            }
-
-    return {
-        "conference": False,
-        "id": False,
-        "message": ApiStatus.INVALID,
-    }
-
-
-@app.get("/tenants/{tenant_name}/phone-numbers")
-def get_phone_numbers(tenant_name: str, conference: Optional[str] = None):
-    numbers = {}
-    for country, number in connection.execute(
-        """
+@app.get("/tenants/{tenant}/phone-numbers")
+def get_phone_numbers(tenant: str, conference: Optional[str] = None):
+    sql = """
         SELECT
             country,
             number
@@ -89,12 +39,16 @@ def get_phone_numbers(tenant_name: str, conference: Optional[str] = None):
             phone_number
             JOIN tenant ON phone_number.tenant_id == tenant.id
         WHERE
-            tenant.name == ?""",
-        (tenant_name,),
-    ):
+            tenant.name == ?"""
+
+    numbers = {}
+
+    for country, number in connection.execute(sql, (tenant,)):
         numbers.setdefault(country, []).append(number)
+
     if not numbers:
-        raise HTTPException(status_code=404, detail="Item not found")
+        raise HTTPException(status_code=404)
+
     return {
         "message": "Phone numbers available.",
         "numbers": numbers,
@@ -102,22 +56,67 @@ def get_phone_numbers(tenant_name: str, conference: Optional[str] = None):
     }
 
 
-def map(conf_name):
-    """link and register the name of a conference with a random identifier"""
+@app.get("/conferences/{conference_id}")
+def get_conference_name(conference_id: str):
+    row = connection.execute(
+        "SELECT tenant_id, name FROM conference WHERE id == ?", (conference_id,)
+    ).fetchone()
+
+    if row is None:
+        raise HTTPException(status_code=404)
+
+    tenant_id, conference = row
+
+    return {
+        "tenant_id": tenant_id,
+        "conference": conference,
+    }
+
+
+# this crappy endpoint must remain upstream compliant (ie: get while binding if not found)
+@app.get("/tenants/{tenant}/conferences")
+def get_conference_id(tenant: str, conference: str):
+    row = connection.execute(
+        "SELECT id FROM tenant WHERE name = ?", (tenant,)
+    ).fetchone()
+
+    if row is None:
+        raise HTTPException(status_code=404)
+
+    tenant_id = row[0]
+
+    row = connection.execute(
+        "SELECT id FROM conference WHERE tenant_id == ? AND name == ?",
+        (tenant_id, conference),
+    ).fetchone()
+
+    conference_id = (
+        row[0] if row is not None else bind_conference(tenant_id, conference)
+    )
+
+    return {
+        "id": conference_id,
+        "conference": conference, # prevent "[features/invite] Error encountered while fetching dial-in numbers: undefined"
+    }
+
+
+def bind_conference(tenant_id, conference):
+    """bind conference name with random identifier"""
 
     clean()
+
     while True:
-        conf_id = "".join(secrets.choice(string.digits) for i in range(10))
+        conference_id = "".join(secrets.choice(string.digits) for i in range(10))
         try:
             connection.execute(
-                "INSERT INTO map (conf_id, conf_name) VALUES (?,?)",
-                (conf_id, conf_name),
+                "INSERT INTO conference (tenant_id, id, name) VALUES (?,?,?)",
+                (tenant_id, conference_id, conference),
             )
         except sqlite3.IntegrityError:
             continue
         break
     connection.commit()
-    return conf_id
+    return conference_id
 
 
 def clean():
@@ -128,21 +127,22 @@ def clean():
     if last_clean is None or now - last_clean > timedelta(days=10):
         now_ts = int(now.timestamp())
         connection.execute(
-            "DELETE FROM map WHERE ? - timestamp > 864000", (now_ts,)
+            "DELETE FROM conference WHERE ? - timestamp > 864000", (now_ts,)
         )  # 10d == 864000s
         last_clean = now
 
 
 last_clean = None
 
-connection = sqlite3.connect("conference-mapper.db", check_same_thread=False)
+connection = sqlite3.connect("jitsi.db", check_same_thread=False)
 
 connection.execute(
-    """CREATE TABLE IF NOT EXISTS map (
-        conf_id TEXT UNIQUE NOT NULL,
-        conf_name TEXT UNIQUE NOT NULL,
+    """CREATE TABLE IF NOT EXISTS conference (
+        tenant_id INTEGER,
+        id TEXT UNIQUE,
+        name TEXT,
         timestamp DATETIME DEFAULT (strftime('%s','now')) NOT NULL,
-        PRIMARY KEY (conf_id, conf_name)
+        PRIMARY KEY (tenant_id, id, name)
     ) WITHOUT ROWID
     """
 )
