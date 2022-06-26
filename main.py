@@ -149,7 +149,7 @@ connection.execute(
 connection.execute(
     """CREATE TABLE IF NOT EXISTS phone_number (
         country TEXT NOT NULL,
-        number TEXT UNIQUE NOT NULL,
+        number TEXT NOT NULL,
         tenant_id INTEGER NOT NULL
     )
     """
