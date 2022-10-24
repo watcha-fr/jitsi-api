@@ -1,4 +1,4 @@
-#! /usr/bin/env bash
+#!/usr/bin/env bash
 
 # usage: ./del-user.sh <username> [<database>]
 

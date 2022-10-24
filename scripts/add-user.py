@@ -1,4 +1,4 @@
-#! /usr/bin/env python3
+#!/usr/bin/env python3
 
 # usage: ./add-user.sh <username> <password> [<database>]
 
